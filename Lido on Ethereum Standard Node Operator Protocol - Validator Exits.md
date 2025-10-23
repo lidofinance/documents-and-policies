@@ -1,136 +1,187 @@
-# Lido on Ethereum Standard Node Operator Protocol - Validator Exits
+# Lido on Ethereum Standard Node Operator Protocol – Validator Exits
 
 ```markdown!
-STATUS: V2.0
+STATUS: V3.0
 ```
 
-## A - Purpose
-This Standard Node Operator Protocol (SNOP) outlines general validator exit mechanisms available in Ethereum (see [Appendix A](#appendix-a---ethereum-validator-exit-mechanisms)), the role that validator exits play in Lido on Ethereum (LoE), the rules around the usage of the SNOP, the algorithmic exit order in place in LoE, the protocol and governance levers for ad-hoc exit prioritization or triggered exits, the responsibilities Node Operators (NOs) using LoE have in processing validator exit requests, and the actions that can be expected in case of non-conformance with the SNOP.
+## A – Purpose
+This Standard Node Operator Protocol (SNOP) outlines
+* the general validator exit mechanisms available in Ethereum (see [Appendix A](#appendix-a--ethereum-validator-exit-mechanisms)),
+* the role that validator exits play in Lido on Ethereum (hereinafter, "Lido"),
+* the scope and rules around the usage of this SNOP,
+* the algorithmic validator exit order in Lido,
+* the framework for permissionless triggerable withdrawals (TWs) of validators from the protocol,
+* the responsibilities Node Operators (NOs) using Lido have in processing validator exit requests, and
+* the actions that NOs can expect in case of non-conformance with Lido and this SNOP.
 
-In LoE, validator exits may be utilized for the following reasons:
+In Lido, validator exits may be utilized for the following reasons:
+* To satisfy unfinalized withdrawal requests from users,
+* To allow permissionless NOs exits at their discretion,
+* To reallocate stake across the NO set — e.g., to maintain NO target, and Staking Module (SM) share limits,
+* To rotate signing keys,
+* To eject validators regardless of demand in the [Withdrawal Queue (WQ)](https://docs.lido.fi/contracts/withdrawal-queue-erc721), if
+  * the rules and expectations of Lido and this SNOP are disregarded,
+  * a NO in a permissionless SM underperforms for an extended period of time,
+  * there's conflict between parties of a joint permissionless operation,
+  * the access to signing keys is lost, or
+  * the security of signing keys is compromised.
 
-* To satisfy unfinalized withdrawal redemption requests from users
-* To reallocate stake across the NO set
-* To rotate signing keys for validators
-* To maintain Staking Module (SM) share limits
-* To eject validators regardless of demand in the [Withdrawal Queue (WQ)](https://docs.lido.fi/contracts/withdrawal-queue-erc721)
+## B – Scope
+This SNOP applies to the Lido protocol, the NOs who use any of the [Staking Router (SR)'s](https://docs.lido.fi/contracts/staking-router) existing SMs — [Curated Module (CM)](https://operatorportal.lido.fi/modules/curated-module), [Simple Distributed Validator Technology Module (SDVTM)](https://operatorportal.lido.fi/modules/simple-dvt-module), and [Community Staking Module (CSM)](https://operatorportal.lido.fi/modules/community-staking-module) — any future SM, and the validators the NOs run as part of the protocol.
 
-## B - Scope
-This SNOP applies to LoE, the NOs who use one or more of the [Staking Router (SR)'s](https://docs.lido.fi/contracts/staking-router) [Curated Module (CM)](https://operatorportal.lido.fi/modules/curated-module), [Simple Distributed Validator Technology Module (SDVTM)](https://operatorportal.lido.fi/modules/simple-dvt-module), and [Community Staking Module (CSM)](https://operatorportal.lido.fi/modules/community-staking-module) and the validators the NOs operate as part of the Liquid Staking Protocol (LSP).
+The following operational flows and expectations apply to all above-mentioned sources, except where alternative processes or expectations are defined due to technical or operational differences.
 
-The below stipulated operational flows and expectations apply to all above-mentioned SMs, except in cases where specific mentions are made to alternate flows or expectations for specific SMs due to differences in their technical or operational characteristics.
-
-**_NOTE:_** As terms can have different meanings based on how they are used and in different contexts, the below table aims to clarify the usage of various terms for the purposes of this SNOP and how they apply within the context of LoE.
+_NOTE: Terminology may vary in meaning depending on context. The below table aims to clarify the usage of key terms for the purpose of this SNOP and within the context of Lido._
 
 Term|Definition|Context
 :---:|---|---
-Node Operator|An entity, individual, or set thereof who operate(s) nodes while using one or more of LoE's SMs to run Ethereum validators|CM & CSM solo operation:</br>A single entity or individual operating validators</br>SDVTM operation:</br>A cluster of independent entities and/or individuals operating validators as a group</br>CSM DVT operation:</br>An entity, individual, or cluster thereof operating validators
-Validator|A validator, also referred to as a "key" in this SNOP, is the technical component of participating in Ethereum's consensus, that - if active - represents a stake weight of up to 32 ETH, is controlled by a public-private validator signing key pair and performs duties for the network -- attesting to and proposing new blocks, participating in sync committees, and reporting network violations of the slashing rules|CM & CSM solo operation:</br>A validator run by a single NO</br>SDVTM operation:</br>A Distributed Validator (DV) run by a cluster of independent NOs utilizing [Distributed Validator Technology (DVT)](https://ethereum.org/en/staking/dvt/#distributed-validator-technology)</br>CSM DVT operation:</br>A DV run by a single NO or cluster utilizing DVT
+Node Operator|An entity, individual, or cluster thereof that operates nodes using any of the SR's SMs or staking avenues to run Ethereum validators|_Solo_:<br>A single entity or individual that operates validators<br><br>_Cluster_:<br>\* An intra-operator cluster by a single entity or individual utilizing [distributed validator technology (DVT)](https://ethereum.org/en/staking/dvt/#distributed-validator-technology) that operates distributed validators (DVs), or<br>\* An inter-operator cluster by multiple entities and/or individuals utilizing DVT that operates DVs
+Validator|A validator — also referred to as a "key" in this SNOP — is the technical component of participating in Ethereum's consensus. If active, it represents an [effective balance](https://eth2book.info/capella/part2/incentives/balances/) ranging from 16 up to 2048 ETH (in 1 ETH increments), according to their corresponding [0x01 or 0x02 withdrawal credentials](https://ethereum.org/en/roadmap/pectra/maxeb/#whats-a-withdrawal-credential); and whether the validator has been slashed. Each validator is controlled by its public-private validator signing key pair and withdrawal credentials, and performs duties for the network — attesting to and proposing new blocks, participating in sync committees, and reporting network violations of the slashing rules|_Standalone_:<br>A validator run by a solo NO on a standalone node and controlled by an unsplit validator key<br><br>_Distributed_:<br>\* A validator run by a solo NO on a multi-node setup and controlled by an unsplit validator key, and/or<br>\* A validator run by a solo NO with distributed remote key management and controlled by the threshold aggregate of the validator key shares generated at the NO's discretion, or<br>\* A DV run by a cluster utilizing DVT and controlled by the threshold aggregate of the validator key shares generated during a distributed key generation (DKG) ceremony
 
-## C - Validator Exit Order
-The exit sequence of LoE validators follows a deterministic order so exits can be computed independently and trustlessly if needed. The order is algorithmic and, in tandem with the incoming stake [allocation algorithm](https://docs.lido.fi/contracts/staking-router#allocation-algorithm), works to organically balance the stake throughout the SMs and across NOs within each SM. By default, and excluding ad-hoc flags (see below), validators are exited from NOs based on the (highest) number of active validators. An additional consideration arises when a group of NOs exceeds the per-NO soft-cap threshold of 1% of total ETH staked in the network. In such cases, NOs with higher stake weight, as determined by the number of long-running active validators, receive a higher priority for exits -- i.e. in the case of two NOs both above the 1% threshold with an equal amount of active keys, the "oldest" keys will be exited first.</br>Other factors, such as the `stakeShareLimit` (an SM-level property), `targetLimit` and validator exits performance (both per-NO per-SM properties) also play a part in the order of validator exit requests.
+## C – Validator Exit Infrastructure
 
-In the SR 2.0, the priority of exits is determined by the following [sorting predicate](https://github.com/lidofinance/lido-oracle/blob/develop/src/services/exit_order_v2/iterator.py#L37).
+### C.1 – Validator Exit Order
+The validator exit order in Lido follows a deterministic sequence, which allows independent and trustless computation of exits if needed. The order is programmatic and, in tandem with the [allocation algorithm](https://docs.lido.fi/contracts/staking-router#allocation-algorithm) that distributes inflows, works to organically balance the protocol stake among NOs within and across each SM. By default, keys are requested to exit from the NOs that run the highest number and longest-standing active validators with the lowest indices. Other factors that can play a conditional role are the `targetLimit` (a per-NO per-SM property, see section [C.1.1](#c11--target-limit)) and the `stakeShareLimit` (an SM-level property, see section [C.1.2](#c12--stake-share-limit)).
+
+Following the implementation of TWs into the protocol (see section [C.2](#c2--triggerable-withdrawals-framework)), the priority of validator exits is determined by the following [sorting predicate](https://github.com/lidofinance/lido-oracle/blob/develop/src/services/exit_order_iterator.py#L32) in descending order.
 
 Sorting|Staking Module|Node Operator|Validator
 :---:|---|---|---
-V||Lowest number of delayed validators|
-V||Highest number of targeted validators to boosted exit|
-V||Highest number of targeted validators to smooth exit|
-V|Highest deviation from the exit share limit (i.e. highest positive difference between `currentShare` and `priorityExitShareThreshold`)||
-V||Highest stake weight|
-V||Highest number of active validators|
-V|||Lowest index
+:arrow_down:||Highest number of targeted validators to boosted exit|
+:arrow_down:||Highest number of targeted validators to smooth exit|
+:arrow_down:|Highest deviation from the exit share limit (i.e., highest positive difference between `currentShare` and `priorityExitShareThreshold`)||
+:arrow_down:||Highest number of active validators|
+:arrow_down:|||Lowest index
 
-### C.1 - Stake Share Limit
-Each SM has the concept of a `stakeShareLimit`, `priorityExitShareThreshold` and `currentShare`, where `stakeShareLimit <= priorityExitShareThreshold`. The `stakeShareLimit` is the maximum percentage of total ETH in LoE that can be allocated to an SM during the stake allocation process. The `priorityExitShareThreshold` represents the stake share threshold after which validator exits from an SM are prioritized. The `currentShare` is defined by the current amount of active validators within an SM.</br>Since the total stake in the protocol is dynamic as a result of inflows and outflows, it is possible that SMs temporarily end up with a `currentShare` higher than their `stakeShareLimit`. The [Validators Exit Bus Oracle (VEBO)](https://docs.lido.fi/contracts/validators-exit-bus-oracle/) takes this into account when determining the next validators to be exited, by comparing an SM's `currentShare` against its `stakeShareLimit` and `priorityExitShareThreshold`, and if over-allocated, determines that the SM must be prioritized for exits (multiple SMs can be prioritized for exits in this manner simultaneously). Thus, each SM is in one of three states at any given time.
+_NOTE: With the [adoption of consolidations in Lido](https://blog.lido.fi/lidos-roadmap-to-pectra-delivering-validator-consolidations-in-the-protocol), criteria that were previously normalized to the number of active validators — each representing Ethereum's minimal deposit size of 32 ETH — will instead be mapped to individual key balances._
 
-When
-* `currentShare < stakeShareLimit`, the SM has default allocation priority, and validators in the SM do not have extra priority for exit
-* `stakeShareLimit <= currentShare <= priorityExitShareThreshold`, the SR does not allocate stake to the SM, and validators in the SM do not have extra priority for exit
-* `priorityExitShareThreshold < currentShare`, the SR does not allocate stake to the SM, and validators in the SM have an increased priority for exit
+#### C.1.1 – Target Limit
+The `targetLimit` and `targetLimitMode` parameters apply to NOs on a per-SM basis — i.e., the `targetLimit` is not shared by the same entity across different SMs. The `targetLimitMode` determines the approach through which exits are requested, and — if a `targetLimitMode` is enabled — the `targetLimit` defines the target number of active validators for an NO in a given SM.
 
-### C.2 - Target Limit
-The concept of a `targetLimit` and `targetLimitMode` is applied to NOs on a per-SM basis -- i.e. the `targetLimit` is not shared by the same entity across SMs. The `targetLimitMode` sets the approach through which exits are requested by LoE, and the `targetLimit` the target number of active validators for an NO in an SM.
+Value|`targetLimitMode`|Deposits|Exits
+:---:|---|---|---
+`0`|Disabled|The NO can receive stake without limitation up to the capacity of its depositable [`vettedSigningKeysCount`](https://docs.lido.fi/contracts/node-operators-registry#setnodeoperatorstakinglimit)|The NO's validators have default exit priority
+`1`|Smooth exit|The NO has a limit to its number of active validators. As long as the NO's number of active validators does not exceed the specified `targetLimit`, the NO may receive stake from the allocation algorithm. However, once the value is reached, the distribution of further stake is paused|If the NO's active keys exceed the `targetLimit`, its validators are prioritized for exit when there is demand in the WQ
+`2`|Boosted exit|The NO has a limit to its number of active validators. As long as the NO's number of active validators does not exceed the specified `targetLimit`, the NO may receive stake from the allocation algorithm. However, once the value is reached, the distribution of further stake is paused|If the NO's active keys exceed the `targetLimit`, exits will be requested regardless of demand in the WQ
 
-With the `targetLimitMode` set to:
-* `0`, i.e. disabled, the NO can receive stake without limitation up to the NO's capacity of vetted depositable keys, and the NO's validators have the default exit priority.
-* `1`, the NO is in smooth exit mode, meaning that there is a limit to the NO's number of active validators. As long as the NO's validator amount does not exceed the specified `targetLimit`, the NO may be allocated stake as per the default allocation algorithm. However, once the value is reached, the allocation of new stake to the NO is stopped. If the NO's active keys exceed the `targetLimit`, the NO's validators are prioritized for exit when there is demand for withdrawal fulfilment that requires exits.
-* `2`, the NO is in boosted exit mode, meaning that should the NO's active keys be or rise above the set `targetLimit`, then exits will be requested from the NO regardless of withdrawal demand, and the NO's validator exits will be prioritized over exits of NOs with a `targetLimitMode` of `0` or `1`.
+An NO's `targetLimitMode` and `targetLimit` for a given SM are set by the Lido community via [Easy Track motion](https://easytrack.lido.fi/) or [on-chain vote](https://vote.lido.fi/).
 
-Independent target limits may be implemented by each SM, but are set by LDO token holders via [Easy Track](https://easytrack.lido.fi/) or [on-chain](https://vote.lido.fi/) [governance votes](https://lido.fi/governance).
+#### C.1.2 – Stake Share Limit
+Each SM has a `stakeShareLimit`, `priorityExitShareThreshold` and `currentShare` parameters, where `stakeShareLimit` <= `priorityExitShareThreshold`:
+* `stakeShareLimit` is the maximum percentage of total ETH in Lido that can be distributed to an SM during stake allocation
+* `priorityExitShareThreshold` is the stake share threshold beyond which validator exits from an SM are prioritized
+* `currentShare` is defined by the percentage of ETH Staked in the SM with respect to the total ETH staked in Lido
 
-## D - Node Operator Responsibilities
-LoE contains on-chain signalling mechanisms that serve to notify NOs when to process validator exits. If exits for keys under their operation have been requested through the VEBO smart contract, NOs have the duty to fully, correctly, and timely exit validators as determined by the requirements and rules set by and for any of the reasons described in the sections [A - Purpose](#a---purpose) and [C - Validator Exit Order](#c---validator-exit-order), as per the latest in force SNOP.
+Since the total stake in the protocol is dynamic as a result of inflows and outflows, it is possible that SMs temporarily end up with a `currentShare` higher than their `stakeShareLimit`. The community members monitoring Lido (see section [C.2.1](#c21--validator-exit-reporting)) take this into account when determining the next validators to be exited, and if over-allocated, report that an SM must be prioritized for exits (multiple SMs can be prioritized in this manner simultaneously). Thus, each SM is in one of three states at any given time.
 
-To determine whether NOs have appropriately executed the required actions, this SNOP outlines the operative timelines for exits processing, and specifies consequences of non-conformance. Generally, NOs are expected to exit the indicated validators in a reasonable time frame. The actual mechanisms for validators to be exited are at the discretion of the NOs, with community-built open-source tooling (see [Appendix B](#appendix-b---tooling)) to aid the NOs in identifying and processing signalled requests being available in addition to any internal tooling, APIs, or manual processes NOs may use.
+When:
+* `currentShare` < `stakeShareLimit`, an SM has default allocation priority, and validators in the SM do not have priority for exit
+* `stakeShareLimit` <= `currentShare` <= `priorityExitShareThreshold`, the SR does not allocate further stake to an SM, but validators in the SM do not have priority for exit
+* `priorityExitShareThreshold` < `currentShare`, the SR does not allocate further stake to an SM, and validators in the SM have priority for exit
 
-### D.1 - Out of Order Exits
-Out of order exits refer to exits that are made by an NO of one of or both the CM and SDVTM when a validator exit request has not been made through the VEBO. In such cases, the NO must notify the community via the [Lido Research Forum](https://research.lido.fi) that an out of order exit has been processed, how many and which validators have been exited, and the reason for it. As the CSM is permissionless and validators are [bonded](https://operatorportal.lido.fi/modules/community-staking-module#block-e4a6daadca12480d955524247f03f380), this expectation is not extended to validators contained therein, CSM NOs are free to exit out of order at their discretion.
+### C.2 – Triggerable Withdrawals Framework
+Lido continues to rely on validator exit reports submitted by oracles and on Node Operators to process them through voluntary exits, with the Triggerable Withdrawals framework introducing an additional fallback mechanism if those steps are not carried out. The [Triggerable Withdrawals framework](https://snapshot.box/#/s:lido-snapshot.eth/proposal/0x7d7f0e1a6d181310f8752af37e20515a9be258f30b211872f9acca99bc478851) adds to the protocol the option of permissionless, secure, and verifiable exits that can be initiated from Ethereum's execution layer (EL) (see [Appendix A.3](#a3--triggerable-withdrawal)). This improves the fault tolerance, reduces trust assumptions and strengthens the foundation for permissionless staking. An overview of the key features and components is provided below — the complete specification can be found in [LIP-30](https://github.com/lidofinance/lido-improvement-proposals/blob/develop/LIPS/lip-30.md).
 
-### D.2 - Business Continuity
-If, at any time, an NO of one of or both the CM and SDVTM is unable to continue operations, e.g. has become insolvent, the NO must notify the community via the Lido Research Forum of the circumstances and signal intent to exit all of the validators the NO operates using LoE. If LDO token holders, via a ratified vote within 8 days, do not instruct the NO otherwise, the NO must proceed with triggering all of the exits.
+#### C.2.1 – Validator Exit Reporting
+As part of the framework, the [Validators Exit Bus Oracle (VEBO)](https://docs.lido.fi/contracts/validators-exit-bus-oracle) — the interface for oracle-driven validator exit reporting — has been incorporated in the [Validators Exit Bus (VEB)](https://docs.lido.fi/guides/oracle-spec/validator-exit-bus), which in turn has taken over the role from the VEBO as the main coordinator for such requests in the protocol. Following this change, exit requests can be submitted by a broader set of actors and via more mechanisms. In addition to the established path — where oracles, via [HashConsensus](https://docs.lido.fi/contracts/hash-consensus), reconcile the on-chain states of Lido and the validators run using the protocol, along with the list of keys requested to exit derived from the Validator Exit Order (see section [C.1](#c1--validator-exit-order)) — exits, can also be requested ad-hoc via Easy Track motions that interface with the VEB and are callable by trusted entities like Curated NOs or the [Simple DVT Module Committee (SDVTMC)](https://research.lido.fi/t/simple-dvt-module-committee-multisig/6520). Whether received directly or through the VEBO, the hashes of all reports are stored in the VEB smart contract, which subsequently waits for the underlying data to be revealed. Not only the [Lido Oracle Committee](https://docs.lido.fi/guides/oracle-operator-manual#committee-membership), but anyone is allowed to submit report data matching archived hashes. When data is received and unpacked, the VEB records a timestamp linked to the associated hash, enabling anyone to prove that a validator has been requested to exit and when the corresponding event has been emitted via a VEB report.
 
-### D.3 - Validator Exits Performance
-The VEBO settles on-chain reports that indicate which validators should be exited by which NO, and constitutes the validator exit requests signal. As with the other sub-modules of the Lido Oracle, the VEBO's work is delineated by equal time periods called frames, the duration of which is specified in an amount of Ethereum Consensus Layer (CL) epochs (~6.4 minutes) according to the respective instance of the Lido [`HashConsensus`](https://docs.lido.fi/contracts/hash-consensus/) smart contract. NOs have a duty to set up infrastructure to capture and process signalled exit requests pertaining to their validators as soon as possible.
+#### C.2.2 – Triggerable Withdrawal Request Submission
+Under the framework, a permissionless ejection can theoretically be initiated immediately once a key has been requested to exit. This ensures that Lido can adequately respond to exceptional situations such as those listed in the Purpose (see section [A](#a--purpose)). Moreover, several [security considerations](https://github.com/lidofinance/lido-improvement-proposals/blob/develop/LIPS/lip-30.md#6-security-considerations) were taken into account during the development of the framework to establish [limits](https://github.com/lidofinance/lido-improvement-proposals/blob/develop/LIPS/lip-30.md#appendix-a--limit-implementation) and [parameters](https://github.com/lidofinance/lido-improvement-proposals/blob/develop/LIPS/lip-30.md#7-proposed-params) that harden the protocol against various attack vectors, while keeping TWs economically sensible and suitable for a wide range of use cases. In practice, however, the [demand-adjusted request fee](https://eips.ethereum.org/EIPS/eip-7002#rate-limiting-using-a-fee) renders TWs prohibitively expensive compared to voluntary exits (see [Appendix A.1](#a1--voluntary-exit)), making them a fallback mechanism rather than a practical alternative for regular validator exit processing.
 
-For clarity, a validator exit request is considered:
-* `signalled` once it is retrievable from a VEBO report,
-* `processed` once it has been broadcast to the CL and included in a block proposed to the Beacon Chain (BC), and
+A Triggerable Withdrawal Request (TWR) can be initiated in two ways
+* permissionlessly by anyone specifying an array of keys that has been requested to exit from any combination of Lido SMs or staking avenues and providing proof of the corresponding VEB report(s), or
+* by an NO that elects or has been requested to exit its validators run for the CSM (or any future permissionless SM).
+
+Depending on the case, the TWR must be created through either the VEB, or ejector specific to the permissionless SM or staking avenue (at the time this version of the SNOP was enacted, only the CSM Ejector existed).
+
+The VEB checks that
+* the exit data hashes provided match some of those stored in the contract,
+* the underlying data has been revealed, and
+* the corresponding exit events have been emitted via VEB report(s),
+
+while the ejector verifies that
+* the requested keys belong to the permissionless SM or staking avenue,
+* the validators were deposited via the [Deposit Security Module (DSM)](https://docs.lido.fi/contracts/deposit-security-module),
+* there are no duplicates in the request to avoid drying out limits, and
+* there is additional logic implemented to confirm that the one calling the TWR is authorized (i.e., controls the keys or is creating a TWR for validators that are permitted, respectively requested to exit).
+
+The subsequent flow is the same for both cases. Once validated, the request is forwarded to the Triggerable Withdrawal Gateway (TWG) — the smart contract responsible for handling triggerable exit requests in Lido —, which then:
+* enforces frame-level rate limits,
+* forwards the request to the [Withdrawal Vault](https://docs.lido.fi/contracts/withdrawal-vault), which interacts with the EIP-7002 precompile to trigger the actual exits,
+* notifies the associated SM or staking avenue of the exits through the SR, and
+* refunds the requester any potential surplus fee provided.
+
+#### C.2.3 – Late Validator Exit Reporting
+A late validator exit refers to a key that has been requested to exit, for which the responsible NO has failed to initiate the exit processing on Ethereum's consensus layer (CL) within the predefined time frame (see section [D.3](#d3--validator-exit-request-processing)). To enable automated enforcement of consequences for NOs non-conformant with the rules and expectations of the SM and this SNOP, late validators must be reportable on-chain. The Triggerable Withdrawals framework ensures this by allowing anyone to permissionlessly submit to the [Validator Exit Delay Verifier](https://github.com/lidofinance/lido-improvement-proposals/blob/develop/LIPS/lip-30.md#44-validator-exit-delay-verifier) a CL proof of a validator's continued active state, along with reference to the VEB report that requested the key to exit. The smart contract then confirms with the VEB that the exit has been requested and calculates the difference between the timestamps of the validator state proof and the exit request emission. In rare cases, e.g., when a key is requested to exit shortly after activation — even before exit initiation is technically possible — the difference is instead calculated between the timestamp of the validator state proof and the moment the key first becomes eligible to exit. The resulting time delta is passed through the SR to the SM, which then decides what further action is warranted based on its internal logic.
+
+#### C.2.4 – Validator Exit Automation
+The Triggerable Withdrawals framework defines all exit enforcement actions, including the submission of lateness proofs and the initiation of validator exits, as permissionless. Any Ethereum participant with sufficient funds for transaction fees can execute these actions, and no privileged role is required. The protocol therefore does not depend on designated operators to ensure validator exits are carried out.
+
+To reduce reliance on manual monitoring and intervention, two open-source off-chain bots are available. The [Validator Late Prover Bot](https://github.com/lidofinance/lido-improvement-proposals/blob/develop/LIPS/lip-30.md#55-validator-late-prover-bot) monitors validators that have been requested to exit but remain active beyond the defined processing window (see section [D.3](#d3--validator-exit-request-processing)), and submits the corresponding proofs. The  [Trigger Exits Bot](https://github.com/lidofinance/lido-improvement-proposals/blob/develop/LIPS/lip-30.md#54-trigger-exits-bot) initiates the exits of validators that have been verified as late. Both bots can be operated by any party, and their function is to ensure that permissionless enforcement is executed in a timely and continuous manner.
+
+## D – Node Operator Responsibilities
+Lido on-chain signalling mechanisms notify NOs when to process validator exits. If exits for keys under their operation have been requested via VEB report(s), NOs have the responsibility to fully, correctly, and timely exit the validators in accordance with the rules and expectations of Lido and this SNOP. To determine whether NOs have appropriately performed the required actions, the following section outlines some exceptions and the expected timelines for regular exit processing.
+
+The actual mechanisms for validator exits are at the discretion of the NOs, with community-built, open-source tooling available (see [Appendix B](#appendix-b--tooling)) to aid in identifying and processing signalled requests in addition to any internal tooling, APIs, or manual processes the NOs may use.
+
+### D.1 – Out of Order Exits
+Out of order exits refer to exits initiated by CM or SDVTM NOs for validators that have not been requested to exit via VEB report(s). In such cases, the NO concerned must notify the community that an out of order exit has been processed, specify the number of validators affected, their indices, and the reason for the exit. CM NOs should communicate this via the [Node Operator category of the Lido Research Forum](https://research.lido.fi/c/node-operators/12) and SDVTM NOs to the SDVTMC. As the CSM is permissionless, and CSM validators are [bonded](https://operatorportal.lido.fi/modules/community-staking-module#block-e4a6daadca12480d955524247f03f380), this expectation does not extend to them, and CSM NOs are free to exit out of order at their discretion.
+
+### D.2 – Operational Continuity
+If at any point in time a CM or SDVTM NO is unable to continue operations, they must notify the community. This notice must take place  before any further action is taken (14 days in advance for SDVT and at least 60 days in the case of the CM), outlining the circumstances and signalling their intent to exit all validators run using the protocol. CM NOs should communicate this via the Node Operator category of the Lido Research Forum and SDVTM NOs to the SDVTMC.<br>If the Lido community does not instruct the NO concerned otherwise — e.g., via an unobjected Easy Track motion or approved Snapshot vote in some instances — the NO must trigger the exits within the prescribed time frame.
+
+An exception to this is an inter-operator cluster (see section [B](#b--scope)) that has not yet utilized the validator key reshare ceremony, which in Lido can be permitted with community approval — e.g., to replace a participant unable to continue without having to exit the cluster's active DVs and thus maintain operational efficiency. In order to avoid risks associated with validator key security, reshare ceremonies are limited to one per cluster.
+
+### D.3 – Validator Exit Request Processing
+The VEB regularly and on an ad-hoc basis settles on-chain reports that indicate which validators should be exited by which NO, and constitute the exit request signal. Scheduled reports are published at intervals referred to as frames. Each frame spans a duration defined by a specific number of CL epochs (~6.4 min each) with the exact length determined by the instance of the HashConsensus smart contract that the VEB is called by. NOs are responsible for promptly setting up infrastructure to capture and process signalled exit requests pertaining to validators they run using Lido.
+
+A validator exit request is considered
+* `signalled` once it is retrievable from a VEB report,
+* `processed` once either a voluntary exit message (VEM) for the key has been broadcast to the CL (see [Appendix A.1](#a1--voluntary-exit)), or a TWR to the EL (see [Appendix A.3](#a3--triggerable-withdrawal)), and the corresponding transaction has been included in a block proposed to the Beacon Chain (BC), and
 * `fulfilled` once the validator has been fully exited and withdrawn.
 
-Although the process can be largely automated, to account for differences in infrastructure, working hours, and mechanism timings, the below are the timing constraints regarding the processing of validator exits requests that NOs must adhere to. If NOs are processing signalled requests as soon as available from a VEBO report, the shortest possible time for a request to go from `signalled` to `processed` will be somewhere within the range of a few minutes to an hour.
+Although the process can largely be automated, differences in infrastructure, working hours, and mechanism timings were considered to outline validator exit processing time frames that NOs must adhere to. If a NO has processed a `signalled` request immediately upon its availability via a VEB report, the minimum time for the request to move from `signalled` to `processed` status is typically between a few minutes to one hour.
 
-With respect to validator exits performance, at any point in time, each NO may be considered to have one of the below three validator exit request statuses:
+To avoid lateness, different SMs and NOs types are granted a specific amount of time (time frames) for the request processing:
 
-* `in good standing` -- validator exit requests are being processed fully, correctly, and timely
-* `delayed` -- validator exit requests are being processed incompletely, incorrectly, or not within the desired time frame
-* `delinquent` -- validator exit requests are being processed incompletely, incorrectly, or not within the acceptable time frame
+Module|Node Operator|Time to process
+:---:|---|---
+Curated|Curated NO|96h
+Simple DVT|Simple DVT NO|96h
+CSM|[Identified Community Stakers (ICS)](https://blog.lido.fi/unlock-exclusive-benefits-as-an-identified-community-staker/)|120h
+CSM|Other, excluding ICS|96h
 
-For every delinquent exit request, i.e. a request that has been unprocessed for longer than the delinquency threshold, an NO's per-SM `stuckKeysCount` increases by `1`. An NO with a `stuckKeysCount > 0` is delinquent, which may result in the NO's share of rewards being reduced and/or penalties imposed for the affected and possibly further frames, as determined by the respective SM. The time for an NO to recover to `in good standing` depends on four aspects, (1) the NO having processed all delinquent exit requests, (2) the frame length of the Lido Oracle sub-module that reports updates on validator exit request statuses, (3) the frame length of the sub-module whose reports account for NO penalties related to unprocessed exit requests or delinquency, and (4) any SM-specific cooldown period for NO delinquency. For the CM and SDVTM, the relevant sub-module is the [Accounting Oracle (AO)](https://docs.lido.fi/contracts/accounting-oracle), for the CSM it is the [Performance Oracle (PO)](https://docs.lido.fi/staking-modules/csm/rewards#performance-oracle). The CM and SDVTM have a cooldown period for NO delinquency of 120 hours, long enough to determine whether, immediately after service restoration, subsequently received validator exit requests are processed timely. The CSM does not have such a cooldown period.
 
-To avoid NO delinquency, NOs must adhere to the following time frames.
 
-Event|Requirement to not be considered delayed|Requirement to not be considered delinquent
----|---|---
-Processing of signalled validator exit requests|All signalled requests are processed in less than 24 hours after a VEBO report|Some signalled requests are taking longer than 24 but less than 96 hours to process
-Escalation of inability to process signalled validator exit request with reason|ASAP but no longer than 24 hours|ASAP but no longer than 96 hours
+## E – Consequences of Non-conformance
+In cases where an NO may not meet the expectations and rules outlined by this SNOP, the following actions may be taken. The specific actions and consequences may differ depending on the SM or staking avenue. For example, bonded SMs, like the CSM, allow additional options for automated conformance mechanisms compared to bondless SMs such as the CM and SDVTM.
 
-## E - Consequences of Non-conformance
-In case that an NO is not processing validator exit requests timely, the below actions shall be taken. Separate measures may be applied dependending on the technical characteristics of the SM within which the request originated. For example, while NOs are known for the permissioned CM and SDVTM, NOs of the permissionless CSM may remain anonymous and reaching the NOs is only possible if a contact is voluntarily shared with the community.
-
-The following table outlines the consequences for non-adherence to validator exit request timing expectations, and for which SM each action applies.
+The table below outlines the potential consequences for non-conformance with the Node Operator Responsibilities (see section [D](#d--node-operator-responsibilities)) regarding validator exits in Lido, along with the SM to which each action applies.
 
 Action|CM|SDVTM|CSM
 ---|:---:|:---:|:---:
-If an NO has a status of delayed, contributors to the Node Operator Mechanisms (NOM) workstream will raise an issue and request remediative action by the NO.|:heavy_check_mark:|:heavy_check_mark:|If NO is identifiable
-If an NO has a status of delayed or delinquent, the VEBO will assume that the NO is unresponsive and reroute newly incoming validator exit requests to NOs that are not considered delayed or delinquent. Due to the rerouting of exit requests, LDO token holders should consider - via an ad-hoc vote - overriding the total limit of active keys for the NO such that if the NO resumes in good standing, the NO is not benefiting at the expense of NOs who took over processing of rerouted exit requests.|:heavy_check_mark:|:heavy_check_mark:|:heavy_check_mark:
-If an NO has a status of delinquent, contributors to the NOM workstream will raise a formal issue with the NO on the Lido Research Forum.|:heavy_check_mark:|:heavy_check_mark:|If NO is identifiable
-While an NO has a status of delinquent, no new stake will be allocated to the NO.|:heavy_check_mark:|:heavy_check_mark:|:heavy_check_mark:
-While an NO has a status of delinquent, the NO's share of rewards for the affected AO frame(s) will halve, with the remainder accruing towards the [stETH rebase(s)](https://docs.lido.fi/guides/lido-tokens-integration-guide) instead.|:heavy_check_mark:|:heavy_check_mark:|:x:
-While an NO has a status of delinquent, no operator rewards will accrue to the NO for the affected PO reporting frame(s), with all operator rewards accruing towards the stETH rebase(s) instead. The NO still receives rewards related to its bond rebase.|:x:|:x:|:heavy_check_mark:
-Once a delinquent NO has processed all signalled exit requests and its `stuckKeysCount` is updated to `0`, the NO may recommence receiving requests. The NO's validator exit request status will revert to `in good standing` after successful expiry of the NO delinquency cooldown period. During that period, the NO will continue to not be allocated new stake and receive halved rewards.|:heavy_check_mark:|:heavy_check_mark:|:x:
-Once a delinquent NO has processed all signalled exit requests and its `stuckKeysCount` is updated to `0`, the NO may recommence receiving requests. The NO's validator exit request status will revert to `in good standing` after successful expiry of the current PO frame. During that frame, the NO will continue to neither be allocated new stake, nor receive operator rewards. The NO still receives rewards related to its bond rebase.|:x:|:x:|:heavy_check_mark:
-In the most egregious of cases, e.g. being delinquent for weeks on end, LDO token holders at any time may consider an on-chain vote to stop a misbehaving NO. A stopped NO will neither be allocated new stake, nor receive rewards. In case of a delinquent cluster, the [SDVTM Committee](https://research.lido.fi/t/simple-dvt-module-committee-multisig/6520) may propose an Easy Track motion to request the exit of the cluster's remaining active DVs. If the NO continues to remain unresponsive, or a cluster cannot aggregate enough signatures to act, the NO/cluster is considered to have been effectively off-boarded from the CM or SDVTM as appropriate. LDO token holders should take further steps to formalize the exit and, in the case of an SDVTM cluster, to allow responsive participants to form a new cluster if applicable.|:heavy_check_mark:|:heavy_check_mark:|:x:
-In case an NO, for any reason, cannot exit a validator, e.g. due to loss of the associated private signing key, the NO is expected to reimburse stakers by supplying the maximum irretrievable balance of the unrecoverable validator -- i.e. 32 ETH, since anything over that can be obtained via partial withdrawal of rewards. Doing so renders the validator in question reimbursed and does not count against the NO in terms of its validator exit request status.</br>**_NOTE:_** With the Ethereum Pectra upgrade, previously unrecoverable validators will become withdrawable through triggerable exits, reducing the cost for NOs to reimburse stakers to the gas and contract transaction fees needed to call the method on the Execution Layer (EL).|:heavy_check_mark:|:heavy_check_mark:|:x:
+If (1) an out of order exit (see section [D.1](#d1--out-of-order-exits)) is initiated without communication, (2) an exit — in the event of operational discontinuation (see section [D.2](#d2--operational-continuity)) — is initiated without prior notice or outside of the prescribed time frame, or (3) a validator exit request is processed late (see section [D.3](#d3--validator-exit-request-processing)), any Lido DAO contributor or community member may reach out to the NO and request a clarification. Depending on the severity of the case, community members may consider to raise a formal issue with the NO on the Lido Research Forum, initiate ejection of the key(s) (see section [C.2](#c2--triggerable-withdrawals-framework)), request compensation for any potentially incurred costs to Lido, propose to set a limit to the NO's depositable `vettedSigningKeysCount` and priority to exit for the remaining active validators (see section [C.1.1](#c11--target-limit)), or other actions, including the offboarding of the NO|:heavy_check_mark:|:heavy_check_mark:|:x:
+If a validator exit request is processed late (see section [D.3](#d3--validator-exit-request-processing)), the corresponding key(s) will be automatically ejected (see section [C.2.4](#c24--validator-exit-automation)). The demand-adjusted TW request fee  (capped at 0.1 ETH per validator by the [framework, see section [C.2.2](#c22--triggerable-withdrawal-request-submission), will be paid from the affected NO's bond. Additionally, a exit delay penaltylate exit disincentive will be burned for the benefit of all stETH holders — 0.05 ETH per key for ICS and 0.1 ETH per key for permissionless CSM NOs. If any of the NO's validators are unable to provide a full bond — i.e., become unbonded — as a result of the enforcement, those validators are requested to exit the protocol.|:x:|:x:|:heavy_check_mark:
 
 # Appendix
 
-## Appendix A - Ethereum Validator Exit Mechanisms
-Currently, there are two ways a validator can exit from Ethereum's CL. The first is a voluntary exit, a validator may choose to voluntarily stop performing duties for the network by submitting a voluntary exit message (VEM) to the BC. The second mechanism is forced ejection from the Ethereum protocol -- this could be triggered by slashing or an insufficient [effective balance](https://eth2book.info/capella/part2/incentives/balances/). Additionally, the upcoming [Pectra hardfork](https://eips.ethereum.org/EIPS/eip-7600) will introduce a third method of exiting validators, EL withdrawal credentials triggerable withdrawals.
+## Appendix A – Ethereum Validator Exit Mechanisms
+There are two ways a validator can exit from Ethereum's CL. The first is a voluntary exit — an NO may choose for its validator to stop performing duties for the network by submitting a VEM to the BC (see [Appendix A.1](#a1--voluntary-exit)). The second mechanism is forced ejection from the protocol (see [Appendix A.2](#a2--forced-exit)) — this could be triggered by slashing or an insufficient effective balance. 
 
-### A.1 - Voluntary Exit
-A validator can initiate a voluntary exit at any time, provided that it has not been slashed, is currently active, and has been active for at least 256 epochs (~27 hours). It does so by signing a VEM using the private validator key, and broadcasting the message to the network to have it processed -- either directly through a local CL client or indirectly, e.g. via an external CL node or API. Once the validator has reached the exit epoch and the NO confirmed that the validator was not selected for [delayed sync committee participation](https://hackmd.io/1wM8vqeNTjqt4pC3XoCUKQ), the validator ceases to perform duties and stops receiving rewards and penalties, i.e. enters the withdrawable state. In this state, the validator waits until its index is parsed by the withdrawals sweep operation and for its balance to be withdrawn to the specified withdrawal credentials.
+Additionally, the [Pectra hardfork](https://eips.ethereum.org/EIPS/eip-7600) introduced a third validator exit option — EL withdrawal credentials initiable TWs (see [Appendix A.3](#a3--triggerable-withdrawal)).
 
-**_NOTE:_** Validators with [BLS 0x00 credentials](https://notes.ethereum.org/@launchpad/withdrawals-faq#Q-What-are-0x00-and-0x01-withdrawal-credentials-prefixes) will need to rotate to 0x01 for the withdrawal to be processed, otherwise they are skipped.
+### A.1 – Voluntary Exit
+An NO can initiate a voluntary exit at any time, as long as the associated validator has been active for at least 256 epochs (~27 h) and not been slashed. The NO does so by signing a VEM using the private validator key and broadcasting the message to the network to have it processed, either directly through a local CL client, or indirectly — e.g., via an external CL node or API. Once the validator reaches its exit epoch and the NO confirms it has not been selected for [delayed sync committee participation](https://hackmd.io/1wM8vqeNTjqt4pC3XoCUKQ), the validator ceases to perform duties and receive rewards and penalties — i.e, enters the withdrawable state. In this state, the validator waits until its index is parsed by the withdrawals sweep operation and for its balance to be withdrawn to the associated withdrawal address.
 
-### A.2 - Forced Exit
-Forced exits are not relevant for the purposes of this SNOP, but occur either as a result of a validator being slashed or of its effective balance falling below Ethereum's current [ejection balance](https://github.com/ethereum/consensus-specs/blob/dev/specs/phase0/beacon-chain.md#validator-cycle) threshold of 16 ETH.
+_NOTE: Validators with [BLS 0x00 credentials](https://notes.ethereum.org/@launchpad/withdrawals-faq#Q-What-are-0x00-and-0x01-withdrawal-credentials-prefixes) have to rotate to 0x01 for the withdrawal to be processed; otherwise, they are skipped._
 
-### A.3 - Triggerable Withdrawal
-[EIP-7002](https://eips.ethereum.org/EIPS/eip-7002) introduces a new functionality to Ethereum that will allow EL withdrawal credentials to signal and initiate partial or full withdrawals of related validators on the CL. This will provide increased assurances with respect to the timely and orderly exit of validators for staking solutions, as well as potential countermeasures against malicious or ill-performing NOs. The downside, however, is that Triggerable Withdrawals (TWs) incur on-chain gas for transactions that do not exist on the CL, as well as variable [request fees](https://eips.ethereum.org/EIPS/eip-7002#fee-calculation), and that the combined costs are partially non-refundable in case of accidental underspending. This makes triggerable withdrawals less suitable than the CL-initiated variant for the average validator exit use case, nor are they a cure-all since validators may still misbehave while in the exit queue. For LoE, the introduction of triggerable withdrawals nevertheless represents a key functional advancement in the offering of bond-based permissionless SMs like the CSM.
+### A.2 – Forced Exit
+Forced exits are not relevant for the purpose of this SNOP, but can occur either as a result of a validator being slashed or its effective balance leaking below Ethereum's current [ejection balance](https://github.com/ethereum/consensus-specs/blob/dev/specs/phase0/beacon-chain.md#validator-cycle) threshold of 16 ETH.
 
-## Appendix B - Tooling
-There is an assortment of community-built open-source tooling available for LoE and Ethereum staking in general, which may be used by NOs to monitor and perform semi- or fully-automated processing of validator exit requests. NOs may choose to utilize open-source "out of the box" implementations, design custom ones, or any combination thereof -- e.g. connecting the Validator Ejector to a custom API, or generating requests in a just-in-time fashion.
+### A.3 – Triggerable Withdrawal
+[EIP-7002](https://eips.ethereum.org/EIPS/eip-7002) introduced a new functionality to Ethereum that enables EL withdrawal credentials to signal and initiate partial or full withdrawals of associated validators on the CL. This improves assurances around the timely and orderly exit of validators for staking solutions, as well as potential countermeasures against malicious or underperforming NOs. The downside, however, is that TWs incur on-chain gas for transactions that do not natively occur on the CL, as well as variable, demand-adjusted request fees (see section [C.2.2](#c22--triggerable-withdrawal-request-submission)). Moreover, the combined costs are partially non-refundable in the case of accidental underspending. This makes TWs less practical than CL-initiated variants for regular exit use cases, nor are they a cure-all, since validators can still misbehave while in the exit queue. Nevertheless, for Lido, the introduction of TWs marks a key functional advancement in the offering of increasingly trustless, permissionless staking.
 
-Detailed descriptions and the source codes of these tools can be found on the [Node Operator Portal](https://operatorportal.lido.fi/existing-operator-portal/ethereum-onboarding/no-resources-tooling).
+## Appendix B – Tooling
+A range of community-built, open-source tooling is available for Lido and Ethereum staking in general. These tools can assist NOs in monitoring and semi- or fully-automated processing of validator exits. NOs may choose to adopt third-party implementations, develop custom solutions, or any combination thereof — e.g., by connecting the [Validator Ejector](https://docs.lido.fi/guides/validator-ejector-guide) to a custom API or generating requests on a just-in-time basis.
+
+Detailed descriptions and the source codes of tools can be found on the [Node Operator Portal](https://operatorportal.lido.fi/existing-operator-portal/ethereum-onboarding/no-resources-tooling).
